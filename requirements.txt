@@ -1,0 +1,4 @@
+discord-webhook
+flask[async]
+pytz
+waitress
