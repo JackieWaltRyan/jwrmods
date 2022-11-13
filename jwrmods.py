@@ -88,7 +88,7 @@ async def backup():
 
 async def bat(user, mod):
     try:
-        module, apks = None, {"v7a": "armeabi-v7a", "v8a": "arm64-v8a", "x86": "x86", "64": "x86_64"}
+        module = None
         if mod == [x for x in BAT][0]:
             module = "money"
         if mod == [x for x in BAT][1]:
@@ -97,21 +97,19 @@ async def bat(user, mod):
             if not BAT[mod]["key"]:
                 BAT[mod]["key"] = True
                 BAT[mod]["queue"] += 1
-                for apk in apks:
-                    with open(file=f"bat/{module}/_INPUT_APK/{apk}/assets/ccwc.txt", mode="w", encoding="UTF-8") as f:
-                        f.write(user)
+                with open(file=f"bat/{module}/_INPUT_APK/com/assets/ccwc.txt", mode="w", encoding="UTF-8") as f:
+                    f.write(user)
                 srun(args=f"bat\\{module}\\bin\\BATCHAPKTOOL.bat launcher 11")
                 with open(file=f"bat/{module}/log_recompile.txt", mode="r", encoding="UTF-8") as log:
                     await logs(level=LEVELS[2], message=log.read())
-                for apk in apks:
-                    if isfile(path=f"bat/{module}/_OUT_APK/{apk}.apk"):
-                        rename(f"bat/{module}/_OUT_APK/{apk}.apk",
-                               f"bat/{module}/_OUT_APK/com.gameloft.android.ANMP.GloftPOHM_{apks[apk]}_{module}.apk")
-                        move(f"bat/{module}/_OUT_APK/com.gameloft.android.ANMP.GloftPOHM_{apks[apk]}_{module}.apk",
-                             f"files/{user}/com.gameloft.android.ANMP.GloftPOHM_{apks[apk]}_{module}.apk")
-                    else:
-                        raise Exception(f"File \"bat/{module}/_OUT_APK/{apk}.apk\" not found.\n"
-                                        f"User: {user}, Time: {datetime.now(tz=timezone(zone='Europe/Moscow'))}")
+                if isfile(path=f"bat/{module}/_OUT_APK/com.apk"):
+                    rename(f"bat/{module}/_OUT_APK/com.apk",
+                           f"bat/{module}/_OUT_APK/com.gameloft.android.ANMP.GloftPOHM_{module}.apk")
+                    move(f"bat/{module}/_OUT_APK/com.gameloft.android.ANMP.GloftPOHM_{module}.apk",
+                         f"files/{user}/com.gameloft.android.ANMP.GloftPOHM_{module}.apk")
+                else:
+                    raise Exception(f"File \"bat/{module}/_OUT_APK/com.apk\" not found.\n"
+                                    f"User: {user}, Time: {datetime.now(tz=timezone(zone='Europe/Moscow'))}")
                 BAT[mod]["key"] = False
                 BAT[mod]["queue"] -= 1
                 with open(file=f"files/{user}/index.html", mode="w", encoding="UTF-8") as html:
@@ -132,7 +130,8 @@ async def bat(user, mod):
 async def home():
     try:
         return render_template(template_name_or_list="index.html",
-                               time=str(datetime.now(tz=timezone(zone="Europe/Moscow")))[:-13])
+                               time=str(datetime.now(tz=timezone(zone="Europe/Moscow")))[:-13],
+                               queue=[BAT[x]["queue"] for x in BAT], trigger=TRIGGER)
     except Exception:
         await logs(level=LEVELS[4], message=format_exc())
 
@@ -167,46 +166,48 @@ async def files(user, file):
 
 
 @APP.route(rule="/confirm", methods=["GET", "POST"])
-async def confirm():
+async def confirm(user=None, mod=None):
     try:
+        if user is None:
+            user = request.get_json(force=True, silent=True)["inv"]
+        if mod is None:
+            mod = request.get_json(force=True, silent=True)["id"]
         from db.users import users
-        users.update({request.get_json(force=True, silent=True)["id"]: {"Все": 20, "v7a": 0, "v8a": 0, "x86": 0,
-                                                                        "x64": 0}})
+        users.update({user: {"Лимит": 5, "Установок": 0, "Попыток": 0}})
         await save(file="users", content=users)
-        makedirs(name=f"files/{request.get_json(force=True, silent=True)['id']}")
-        time = BAT[request.get_json(force=True, silent=True)["inv"]]["queue"] * 5
+        makedirs(name=f"files/{user}")
+        time = BAT[mod]["queue"] * 5
         if time == 0:
             time = 5
-        with open(file=f"files/{request.get_json(force=True, silent=True)['id']}/index.html", mode="w",
-                  encoding="UTF-8") as html:
-            html.write(render_template(template_name_or_list="wait.html",
-                                       queue=BAT[request.get_json(force=True, silent=True)["inv"]]["queue"], time=time))
+        with open(file=f"files/{user}/index.html", mode="w", encoding="UTF-8") as html:
+            html.write(render_template(template_name_or_list="wait.html", queue=BAT[mod]["queue"], time=time))
         new_loop = new_event_loop()
         Thread(target=new_loop.run_forever).start()
-        run_coroutine_threadsafe(coro=bat(user=request.get_json(force=True, silent=True)["id"],
-                                          mod=request.get_json(force=True, silent=True)["inv"]), loop=new_loop)
-        return {"id": request.get_json(force=True, silent=True)["id"],
-                "inv": request.get_json(force=True, silent=True)["inv"],
-                "goods": render_template(template_name_or_list="response.html",
-                                         user=request.get_json(force=True, silent=True)["id"])}
+        run_coroutine_threadsafe(coro=bat(user=user, mod=mod), loop=new_loop)
+        return {"id": user, "inv": mod, "goods": render_template(template_name_or_list="response.html", user=user)}
     except Exception:
         await logs(level=LEVELS[4], message=format_exc())
-        return {"id": request.get_json(force=True, silent=True)["id"],
-                "inv": request.get_json(force=True, silent=True)["inv"],
-                "error": render_template(template_name_or_list="error.html",
-                                         user=request.get_json(force=True, silent=True)["id"],
-                                         time=datetime.now(tz=timezone(zone="Europe/Moscow")))}
+        return {"id": user, "inv": mod, "error": render_template(template_name_or_list="error.html", user=user,
+                                                                 time=datetime.now(tz=timezone(zone="Europe/Moscow")))}
 
 
-@APP.route(rule="/start/<user>/<architecture>/<time>", methods=["GET", "POST"])
-async def start(user, architecture, time):
+@APP.route(rule="/start/<user>", methods=["GET", "POST"])
+async def start(user):
     try:
+        print(user)
         from db.users import users
-        if users[user][architecture] < int(users[user]["Все"] / 4):
-            users[user][architecture] += 1
+        if users[user]["Установок"] < users[user]["Лимит"]:
+            users[user]["Установок"] += 1
+            users[user]["Попыток"] += 1
             await save(file="users", content=users)
             return "1125"
         else:
+            users[user]["Попыток"] += 1
+            await save(file="users", content=users)
+            if users[user]["Попыток"] == 20:
+                await logs(level=LEVELS[3], message=f"Пользователь {user} превысил лимит 20 попыток!")
+            if users[user]["Попыток"] == 100:
+                await logs(level=LEVELS[5], message=f"Пользователь {user} превысил лимит 100 попыток!")
             return "1126"
     except Exception:
         await logs(level=LEVELS[4], message=format_exc())
@@ -219,11 +220,12 @@ async def admin(password, trigger, user, value):
         password_hash = "36aff10f2915d0d5e95b1c63bb9be2892e9ea3fa8685472a1c7f4bd895e4a06e"
         if sha256(password.encode(encoding="UTF-8")).hexdigest() == password_hash:
             if trigger == "add":
-                await confirm(user=user, mod=value)
+                res = await confirm(user=user, mod=value)
+                return res["goods"] if "goods" in res else res["error"]
             if trigger == "change":
                 from db.users import users
-                old = users[user]["Все"]
-                users[user]["Все"] = int(value)
+                old = users[user]["Лимит"]
+                users[user]["Лимит"] = int(value)
                 await save(file="users", content=users)
                 return f"Status: OK<br><br>User: {user}<br>Old value: {old}<br>New value: {value}"
             if trigger == "debug":
