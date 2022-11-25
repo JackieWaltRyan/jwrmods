@@ -1,4 +1,4 @@
-discord-webhook
-flask[async]
-pytz
-waitress
+discord-webhook==1.0.0
+Flask[async]==2.2.2
+pytz==2022.6
+waitress==2.1.2

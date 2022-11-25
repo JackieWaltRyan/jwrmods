@@ -176,18 +176,18 @@ async def confirm(user=None, mod=None):
         users.update({user: {"Лимит": 5, "Установок": 0, "Попыток": 0}})
         await save(file="users", content=users)
         makedirs(name=f"files/{user}")
-        time = BAT[mod]["queue"] * 5
+        time = BAT[mod]["queue"] * 15
         if time == 0:
-            time = 5
+            time = 15
         with open(file=f"files/{user}/index.html", mode="w", encoding="UTF-8") as html:
             html.write(render_template(template_name_or_list="wait.html", queue=BAT[mod]["queue"], time=time))
         new_loop = new_event_loop()
         Thread(target=new_loop.run_forever).start()
         run_coroutine_threadsafe(coro=bat(user=user, mod=mod), loop=new_loop)
-        return {"id": user, "inv": mod, "goods": render_template(template_name_or_list="response.html", user=user)}
+        return {"id": mod, "inv": user, "goods": render_template(template_name_or_list="response.html", user=user)}
     except Exception:
         await logs(level=LEVELS[4], message=format_exc())
-        return {"id": user, "inv": mod, "error": render_template(template_name_or_list="error.html", user=user,
+        return {"id": mod, "inv": user, "error": render_template(template_name_or_list="error.html", user=user,
                                                                  time=datetime.now(tz=timezone(zone="Europe/Moscow")))}
 
 
