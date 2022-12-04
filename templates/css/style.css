@@ -1,0 +1,18 @@
+@font-face {
+	font-family: celestia;
+	src: url("/templates/fonts/celestia.eot") format("eot");
+	src: url("/templates/fonts/celestia.otf") format("otf");
+	src: url("/templates/fonts/celestia.svg") format("svg");
+	src: url("/templates/fonts/celestia.ttf") format("truetype");
+	src: url("/templates/fonts/celestia.woff") format("woff");
+	font-weight: 100;
+	font-style: normal;
+}
+
+body {
+    font-family: celestia !important;
+    font-size: 25px !important;
+    color: #00ffff !important;
+    background-color: #000 !important;
+    text-align: center !important;
+}

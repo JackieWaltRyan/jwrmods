@@ -1,9 +1,11 @@
+from sys import executable
+
 from asyncio import new_event_loop, run, sleep, run_coroutine_threadsafe
 from datetime import datetime
 from discord_webhook import DiscordWebhook, DiscordEmbed
-from flask import Flask, request, send_file, render_template
+from flask import Flask, request, send_file, render_template, session, redirect, url_for
 from hashlib import sha256
-from os import makedirs, rename, system
+from os import makedirs, rename, system, execl
 from os.path import isfile, exists
 from pytz import timezone
 from shutil import move
@@ -17,6 +19,8 @@ LEVELS, TRIGGER = {1: {"name": "DEBUG", "color": 0x0000FF}, 2: {"name": "INFO", 
                    3: {"name": "WARNING", "color": 0xFFFF00}, 4: {"name": "ERROR", "color": 0xFFA500},
                    5: {"name": "CRITICAL", "color": 0xFF0000}}, {"Save": False, "Backup": False}
 TIME = str(datetime.now(tz=timezone(zone="Europe/Moscow")))[:-7].replace(" ", "_").replace("-", "_").replace(":", "_")
+APP.secret_key = b""
+LOGIN, PASSWORD = "JackieRyan", ""
 
 
 async def logs(level, message, file=None):
@@ -136,12 +140,12 @@ async def home():
         await logs(level=LEVELS[4], message=format_exc())
 
 
-@APP.route(rule="/templates/<file>", methods=["GET", "POST"])
+@APP.route(rule="/templates/css/<file>", methods=["GET", "POST"])
 @APP.route(rule="/templates/fonts/<file>", methods=["GET", "POST"])
 async def templates(file):
     try:
-        if file == "style.css":
-            return send_file(path_or_file="templates/style.css")
+        if "css" in file:
+            return send_file(path_or_file=f"templates/css/{file}")
         if "celestia" in file:
             return send_file(path_or_file=f"templates/fonts/{file}")
     except Exception:
@@ -214,34 +218,83 @@ async def start(user):
         return "1127"
 
 
-@APP.route(rule="/admin/<password>/<trigger>/<user>/<value>", methods=["GET", "POST"])
-async def admin(password, trigger, user, value):
+@APP.route(rule="/admin", methods=["GET", "POST"])
+async def admin():
     try:
-        password_hash = "36aff10f2915d0d5e95b1c63bb9be2892e9ea3fa8685472a1c7f4bd895e4a06e"
-        if sha256(password.encode(encoding="UTF-8")).hexdigest() == password_hash:
-            if trigger == "add":
-                res = await confirm(user=user, mod=value)
-                return res["goods"] if "goods" in res else res["error"]
-            if trigger == "change":
-                from db.users import users
-                old = users[user]["Лимит"]
-                users[user]["Лимит"] = int(value)
-                await save(file="users", content=users)
-                return f"Status: OK<br><br>User: {user}<br>Old value: {old}<br>New value: {value}"
-            if trigger == "debug":
-                from db.settings import settings
-                if value == "on":
-                    settings["Дебаг"] = True
-                    await save(file="settings", content=settings)
-                if value == "off":
-                    settings["Дебаг"] = False
-                    await save(file="settings", content=settings)
-                return f"Status: OK<br><br>Debug: {value}"
+        def data():
+            variables_str, triggers_str, settings_str, users_str = "", "", "", ""
+            for item in BAT:
+                variables_str += f"{item}: {BAT[item]}\n"
+            for item in TRIGGER:
+                triggers_str += f"{item}: {TRIGGER[item]}\n"
+            from db.settings import settings
+            for item in settings:
+                settings_str += f"{item}: {settings[item]}\n"
+            from db.users import users
+            for item in users:
+                users_str += f"{item}: {users[item]}\n"
+            return render_template(template_name_or_list="admin.html", variables=variables_str, triggers=triggers_str,
+                                   settings=settings_str, users=users_str)
+
+        if len(request.form) == 0:
+            if "user" in session and "token" in session:
+                if session["user"] == LOGIN and session["token"] == PASSWORD:
+                    return data()
+                else:
+                    return render_template(template_name_or_list="login.html")
+            else:
+                return render_template(template_name_or_list="login.html")
         else:
-            return f"Status: Error<br><br>Неверный пароль!"
+            if "login" in request.form and "password" in request.form:
+                pass_hash = sha256(request.form["password"].encode(encoding="UTF-8")).hexdigest()
+                if request.form["login"] == LOGIN and pass_hash == PASSWORD:
+                    session["user"] = LOGIN
+                    session["token"] = PASSWORD
+                    session.permanent = True
+                    return redirect(location=url_for(endpoint="admin"))
+                else:
+                    return render_template(template_name_or_list="login.html")
+            elif "debug" in request.form and "token" in session:
+                if session["token"] == PASSWORD:
+                    from db.settings import settings
+                    if settings["Дебаг"]:
+                        settings["Дебаг"] = False
+                    else:
+                        settings["Дебаг"] = True
+                    await save(file="settings", content=settings)
+                    return redirect(location=url_for(endpoint="admin"))
+            elif "res" in request.form and "token" in session:
+                if session["token"] == PASSWORD:
+                    try:
+                        execl(executable, executable, "jwrmods.py")
+                    except Exception:
+                        await logs(level=LEVELS[1], message=format_exc())
+                        execl("python/python.exe", "python/python.exe", "jwrmods.py")
+                    return redirect(location=url_for(endpoint="admin"))
+            elif "select" in request.form and "token" in session:
+                if request.form["select"] == "add" and session["token"] == PASSWORD:
+                    res = await confirm(user=request.form["id"], mod=request.form["value"])
+                    return res["goods"] if "goods" in res else res["error"]
+                elif request.form["select"] == "change" and session["token"] == PASSWORD:
+                    from db.users import users
+                    users[request.form["id"]]["Лимит"] = int(request.form["value"])
+                    await save(file="users", content=users)
+                    return redirect(location=url_for(endpoint="admin"))
+                elif request.form["select"] == "del" and session["token"] == PASSWORD:
+                    from db.users import users
+                    if request.form["value"] == "All":
+                        users = {}
+                    else:
+                        users.pop(request.form["id"])
+                    await save(file="users", content=users)
+                    return redirect(location=url_for(endpoint="admin"))
+                else:
+                    return redirect(location=url_for(endpoint="admin"))
+            else:
+                return render_template(template_name_or_list="login.html")
     except Exception:
         await logs(level=LEVELS[4], message=format_exc())
-        return format_exc()
+        return redirect(location=url_for(endpoint="admin"))
 
 
 if __name__ == "__main__":

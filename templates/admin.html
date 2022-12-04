@@ -1,0 +1,45 @@
+<!DOCTYPE HTML>
+<html lang="ru">
+    <head>
+        <meta charset="utf-8"/>
+        <title>Административный</title>
+		<meta name="description" content="Административный"/>
+        <link rel="stylesheet" type="text/css" href="/templates/css/admin.css"/>
+		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+		<link rel="icon" href="//jwr.exaccess.com/favicon_20220703042540_16x16.png" sizes="16x16" type="image/png"/>
+        <link rel="icon" href="//jwr.exaccess.com/favicon_20220703042540_32x32.png" sizes="16x16 32x32" type="image/png"/>
+    </head>
+    <body>
+        <div class="main">
+            <div>Переменные:</div>
+            <textarea cols="55" rows="3" readonly="">{{variables}}</textarea>
+            <div>Триггеры:</div>
+            <textarea cols="55" rows="3" readonly="">{{triggers}}</textarea>
+            <div>Настройки:</div>
+            <textarea cols="55" rows="3" readonly="">{{settings}}</textarea>
+            <div>Пользователи:</div>
+            <textarea cols="55" rows="10" readonly="">{{users}}</textarea>
+            <form id="form" method="post">
+                <select name="select" form="form" size="1">
+                    <option value="none" hidden="">Выберите тип</option>
+                    <option value="add">Добавить</option>
+                    <option value="change">Изменить</option>
+                    <option value="del">Удалить</option>
+                </select>
+                <div>ID:</div>
+                <input class="text" type="text" name="id">
+                <div>Значение:</div>
+                <input class="text" type="text" name="value">
+                <div style="padding-top: 10px;">
+                    <input class="submit" type="submit" value="Отправить" name="submit">
+                </div>
+            </form>
+            <form method="post">
+                <div style="padding-top: 50px;">
+                    <input class="submit" type="submit" value="Дебаг" name="debug">
+                    <input class="submit" type="submit" value="Перезагрузка" name="res">
+                </div>
+            </form>
+        </div>
+    </body>
+</html>
