@@ -14,10 +14,11 @@ from threading import Thread, Timer
 from traceback import format_exc
 from waitress import serve
 
-APP, BAT = Flask(import_name=__name__), {"3467418": {"key": False, "queue": 0}, "3468896": {"key": False, "queue": 0}}
-LEVELS, TRIGGER = {1: {"name": "DEBUG", "color": 0x0000FF}, 2: {"name": "INFO", "color": 0x008000},
-                   3: {"name": "WARNING", "color": 0xFFFF00}, 4: {"name": "ERROR", "color": 0xFFA500},
-                   5: {"name": "CRITICAL", "color": 0xFF0000}}, {"Save": False, "Backup": False}
+APP, TRIGGER = Flask(import_name=__name__), {"Сохранение": False, "Бэкап": False}
+BAT = {"3467418": {"Триггер": False, "Очередь": 0}, "3468896": {"Триггер": False, "Очередь": 0}}
+LEVELS = {1: {"Название": "DEBUG", "Цвет": 0x0000FF}, 2: {"Название": "INFO", "Цвет": 0x008000},
+          3: {"Название": "WARNING", "Цвет": 0xFFFF00}, 4: {"Название": "ERROR", "Цвет": 0xFFA500},
+          5: {"Название": "CRITICAL", "Цвет": 0xFF0000}}
 TIME = str(datetime.now(tz=timezone(zone="Europe/Moscow")))[:-7].replace(" ", "_").replace("-", "_").replace(":", "_")
 APP.secret_key = b""
 LOGIN, PASSWORD = "JackieRyan", ""
@@ -29,28 +30,28 @@ async def logs(level, message, file=None):
             from db.settings import settings
             if not settings["Дебаг"]:
                 return None
-        print(f"{datetime.now(tz=timezone(zone='Europe/Moscow'))} {level['name']}\n{message}")
+        print(f"{datetime.now(tz=timezone(zone='Europe/Moscow'))} {level['Название']}\n{message}")
         if not exists(path="logs"):
             makedirs(name="logs")
         with open(file=f"logs/{str(TIME)[:-6]}.log", mode="a", encoding="UTF-8") as log_file:
-            log_file.write(f"{datetime.now(tz=timezone(zone='Europe/Moscow'))} {level['name']} {message}\n")
+            log_file.write(f"{datetime.now(tz=timezone(zone='Europe/Moscow'))} {level['Название']} {message}\n")
         webhook = DiscordWebhook(username="JWR Mods",
                                  avatar_url="https://cdn.discordapp.com/attachments/1021085537802649661/"
                                             "1021392623044415597/JWR_Mods.png", url="")
-        webhook.add_embed(embed=DiscordEmbed(title=level["name"], description=str(message), color=level["color"]))
+        webhook.add_embed(embed=DiscordEmbed(title=level["Название"], description=str(message), color=level["Цвет"]))
         if file is not None:
             with open(file=f"backups/{file}", mode="rb") as backup_file:
                 webhook.add_file(file=backup_file.read(), filename=file)
         webhook.execute()
     except Exception:
-        print(format_exc())
+        await logs(level=LEVELS[4], message=format_exc())
 
 
 async def save(file, content):
     try:
         while True:
-            if not TRIGGER["Save"]:
-                TRIGGER["Save"] = True
+            if not TRIGGER["Сохранение"]:
+                TRIGGER["Сохранение"] = True
                 if not exists(path="db"):
                     makedirs(name="db")
                 if file in ["settings"]:
@@ -59,13 +60,13 @@ async def save(file, content):
                 else:
                     with open(file=f"db/{file}.py", mode="w", encoding="UTF-8") as open_file:
                         open_file.write(f"{file} = {content}\n")
-                TRIGGER["Save"] = False
+                TRIGGER["Сохранение"] = False
                 break
             else:
                 print("Идет сохранение...")
                 await sleep(delay=1)
     except Exception:
-        TRIGGER["Save"] = False
+        TRIGGER["Сохранение"] = False
         await logs(level=LEVELS[4], message=format_exc())
 
 
@@ -75,18 +76,18 @@ async def backup():
         print(f"jwrmods: {time}")
         from db.settings import settings
         if (datetime.utcnow() - settings["Дата обновления"]).days >= 1:
-            if not TRIGGER["Backup"]:
-                TRIGGER["Backup"] = True
+            if not TRIGGER["Бэкап"]:
+                TRIGGER["Бэкап"] = True
                 if not exists(path="backups"):
                     makedirs(name="backups")
                 system(command=f"zip\\x64\\7za.exe a -mx9 backups\\jwrmods_{TIME[:-6]}.zip db")
                 settings["Дата обновления"] = datetime.utcnow()
                 await save(file="settings", content=settings)
                 await logs(level=LEVELS[2], message=f"Бэкап БД создан успешно!", file=f"jwrmods_{TIME[:-6]}.zip")
-                TRIGGER["Backup"] = False
+                TRIGGER["Бэкап"] = False
         Timer(interval=1, function=lambda: run(main=backup())).start()
     except Exception:
-        TRIGGER["Backup"] = False
+        TRIGGER["Бэкап"] = False
         await logs(level=LEVELS[4], message=format_exc())
 
 
@@ -98,9 +99,9 @@ async def bat(user, mod):
         if mod == [x for x in BAT][1]:
             module = "maximum"
         while True:
-            if not BAT[mod]["key"]:
-                BAT[mod]["key"] = True
-                BAT[mod]["queue"] += 1
+            if not BAT[mod]["Триггер"]:
+                BAT[mod]["Триггер"] = True
+                BAT[mod]["Очередь"] += 1
                 with open(file=f"bat/{module}/_INPUT_APK/com/assets/ccwc.txt", mode="w", encoding="UTF-8") as f:
                     f.write(user)
                 srun(args=f"bat\\{module}\\bin\\BATCHAPKTOOL.bat launcher 11")
@@ -114,16 +115,16 @@ async def bat(user, mod):
                 else:
                     raise Exception(f"File \"bat/{module}/_OUT_APK/com.apk\" not found.\n"
                                     f"User: {user}, Time: {datetime.now(tz=timezone(zone='Europe/Moscow'))}")
-                BAT[mod]["key"] = False
-                BAT[mod]["queue"] -= 1
+                BAT[mod]["Триггер"] = False
+                BAT[mod]["Очередь"] -= 1
                 with open(file=f"files/{user}/index.html", mode="w", encoding="UTF-8") as html:
                     html.write(render_template(template_name_or_list="files.html", user=user, module=module))
                 break
             else:
                 await sleep(delay=5)
     except Exception:
-        BAT[mod]["key"] = False
-        BAT[mod]["queue"] -= 1
+        BAT[mod]["Триггер"] = False
+        BAT[mod]["Очередь"] -= 1
         with open(file=f"files/{user}/index.html", mode="w", encoding="UTF-8") as error:
             error.write(render_template(template_name_or_list="error.html", user=user,
                                         time=datetime.now(tz=timezone(zone="Europe/Moscow"))))
@@ -135,7 +136,7 @@ async def home():
     try:
         return render_template(template_name_or_list="index.html",
                                time=str(datetime.now(tz=timezone(zone="Europe/Moscow")))[:-13],
-                               queue=[BAT[x]["queue"] for x in BAT], trigger=TRIGGER)
+                               queue=[BAT[x]["Очередь"] for x in BAT], trigger=TRIGGER)
     except Exception:
         await logs(level=LEVELS[4], message=format_exc())
 
@@ -180,11 +181,11 @@ async def confirm(user=None, mod=None):
         users.update({user: {"Лимит": 5, "Установок": 0, "Попыток": 0}})
         await save(file="users", content=users)
         makedirs(name=f"files/{user}")
-        time = BAT[mod]["queue"] * 15
+        time = BAT[mod]["Очередь"] * 15
         if time == 0:
             time = 15
         with open(file=f"files/{user}/index.html", mode="w", encoding="UTF-8") as html:
-            html.write(render_template(template_name_or_list="wait.html", queue=BAT[mod]["queue"], time=time))
+            html.write(render_template(template_name_or_list="wait.html", queue=BAT[mod]["Очередь"], time=time))
         new_loop = new_event_loop()
         Thread(target=new_loop.run_forever).start()
         run_coroutine_threadsafe(coro=bat(user=user, mod=mod), loop=new_loop)
