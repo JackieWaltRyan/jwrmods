@@ -1,10 +1,10 @@
 @font-face {
 	font-family: celestia;
-	src: url("/templates/fonts/celestia.eot") format("eot");
-	src: url("/templates/fonts/celestia.otf") format("otf");
-	src: url("/templates/fonts/celestia.svg") format("svg");
-	src: url("/templates/fonts/celestia.ttf") format("truetype");
-	src: url("/templates/fonts/celestia.woff") format("woff");
+	src: url("/fonts/celestia.eot") format("eot");
+	src: url("/fonts/celestia.otf") format("otf");
+	src: url("/fonts/celestia.svg") format("svg");
+	src: url("/fonts/celestia.ttf") format("truetype");
+	src: url("/fonts/celestia.woff") format("woff");
 	font-weight: 100;
 	font-style: normal;
 }
@@ -17,7 +17,7 @@ body {
     text-align: center !important;
 }
 
-textarea {
+textarea, iframe {
     margin: 15px !important;
 }
 

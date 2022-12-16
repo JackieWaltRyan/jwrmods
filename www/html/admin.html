@@ -4,21 +4,22 @@
         <meta charset="utf-8"/>
         <title>Административный</title>
 		<meta name="description" content="Административный"/>
-        <link rel="stylesheet" type="text/css" href="/templates/css/admin.css"/>
-		<meta name="viewport" content="width=device-width, initial-scale=1"/>
-		<link rel="icon" href="//jwr.exaccess.com/favicon_20220703042540_16x16.png" sizes="16x16" type="image/png"/>
-        <link rel="icon" href="//jwr.exaccess.com/favicon_20220703042540_32x32.png" sizes="16x16 32x32" type="image/png"/>
+		<link rel="icon" href="/images/favicon.png" type="image/png"/>
+        <link rel="stylesheet" type="text/css" href="/css/admin.css"/>
+		<meta name="viewport" content="width=device-width, initial-scale=0.8"/>
     </head>
     <body>
         <div class="main">
+            <div>Монитор:</div>
+            <iframe src="/monitor" frameborder="0" width="400" height="200" marginwidth="0" marginheight="0" scrolling="no"></iframe>
             <div>Переменные:</div>
-            <textarea cols="55" rows="3" readonly="">{{variables}}</textarea>
+            <textarea cols="{{variables_cols}}" rows="{{variables_rows}}" readonly="">{{variables_str}}</textarea>
             <div>Триггеры:</div>
-            <textarea cols="55" rows="3" readonly="">{{triggers}}</textarea>
+            <textarea cols="{{triggers_cols}}" rows="{{triggers_rows}}" readonly="">{{triggers_str}}</textarea>
             <div>Настройки:</div>
-            <textarea cols="55" rows="3" readonly="">{{settings}}</textarea>
+            <textarea cols="{{settings_cols}}" rows="{{settings_rows}}" readonly="">{{settings_str}}</textarea>
             <div>Пользователи:</div>
-            <textarea cols="55" rows="10" readonly="">{{users}}</textarea>
+            <textarea cols="{{users_cols}}" rows="{{users_rows}}" readonly="">{{users_str}}</textarea>
             <form id="form" method="post">
                 <select name="select" form="form" size="1">
                     <option value="none" hidden="">Выберите тип</option>
