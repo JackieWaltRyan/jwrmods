@@ -11,6 +11,9 @@
     <body>
         <div class="main">
             <form method="post">
+                {% if error %}
+                    <div style="color: red">Значение "Логин" или "Пароль" неверные!</div><br>
+                {% endif %}
                 <div>Логин:</div>
                 <input class="text" type="text" name="login">
                 <div>Пароль:</div>

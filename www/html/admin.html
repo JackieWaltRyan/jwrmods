@@ -10,16 +10,21 @@
     </head>
     <body>
         <div class="main">
-            <div>Монитор:</div>
-            <iframe src="/monitor" frameborder="0" width="400" height="200" marginwidth="0" marginheight="0" scrolling="no"></iframe>
-            <div>Переменные:</div>
-            <textarea cols="{{variables_cols}}" rows="{{variables_rows}}" readonly="">{{variables_str}}</textarea>
-            <div>Триггеры:</div>
-            <textarea cols="{{triggers_cols}}" rows="{{triggers_rows}}" readonly="">{{triggers_str}}</textarea>
+            <div><a href="/monitor" target="_blank">Монитор:</a></div>
+            <iframe src="/monitor?clear" frameborder="0" width="400" height="200" marginwidth="0" marginheight="0" scrolling="no"></iframe>
             <div>Настройки:</div>
-            <textarea cols="{{settings_cols}}" rows="{{settings_rows}}" readonly="">{{settings_str}}</textarea>
+            <textarea cols="{{ settings_cols }}" rows="{{ settings_rows }}" readonly="">{{ settings_str }}</textarea>
             <div>Пользователи:</div>
-            <textarea cols="{{users_cols}}" rows="{{users_rows}}" readonly="">{{users_str}}</textarea>
+            <textarea cols="{{ users_cols }}" rows="{{ users_rows }}" readonly="">{{ users_str }}</textarea>
+            {% if error == 1 %}
+                <div style="color: red">Значение "Пользователь" и "Мод" не может быть пустым!</div>
+            {% endif %}
+            {% if error == 2 %}
+                <div style="color: red">Значение "Пользователь" и "Значение" не может быть пустым!</div>
+            {% endif %}
+            {% if error == 3 %}
+                <div style="color: red">Значение "Пользователь" не может быть пустым!</div>
+            {% endif %}
             <form id="form" method="post">
                 <select name="select" form="form" size="1">
                     <option value="none" hidden="">Выберите тип</option>
@@ -38,7 +43,8 @@
             <form method="post">
                 <div style="padding-top: 50px;">
                     <input class="submit" type="submit" value="Дебаг" name="debug">
-                    <input class="submit" type="submit" value="Перезагрузка" name="res">
+                    <input class="submit" type="submit" value="Перезагрузка" name="res"><br><br>
+                    <input class="submit" type="submit" value="Выйти" name="exit"/>
                 </div>
             </form>
         </div>

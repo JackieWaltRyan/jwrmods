@@ -1,331 +1,442 @@
 from sys import executable
 
-from asyncio import new_event_loop, run, sleep, run_coroutine_threadsafe
+from asyncio import new_event_loop, run, run_coroutine_threadsafe
 from datetime import datetime
-from discord_webhook import DiscordWebhook, DiscordEmbed
+from discord_webhook import AsyncDiscordWebhook, DiscordEmbed
 from flask import Flask, request, send_file, session, redirect, url_for, render_template_string
+from functools import partial
 from hashlib import sha256
-from os import makedirs, rename, system, execl
-from os.path import isfile, exists
+from os import makedirs, execl, listdir, remove
+from os.path import exists
 from psutil import cpu_percent, virtual_memory, disk_partitions, disk_usage
+from pymongo import MongoClient
 from pytz import timezone
 from shutil import move
-from subprocess import run as srun
+from subprocess import run as s_run
 from threading import Thread, Timer
 from traceback import format_exc
 from waitress import serve
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-APP, TRIGGER = Flask(import_name=__name__), {"Сохранение": False, "Бэкап": False}
-BAT = {"3467418": {"Триггер": False, "Очередь": 0}, "3468896": {"Триггер": False, "Очередь": 0}}
-LEVELS = {1: {"Название": "DEBUG", "Цвет": 0x0000FF}, 2: {"Название": "INFO", "Цвет": 0x008000},
-          3: {"Название": "WARNING", "Цвет": 0xFFFF00}, 4: {"Название": "ERROR", "Цвет": 0xFFA500},
-          5: {"Название": "CRITICAL", "Цвет": 0xFF0000}}
+APP, DB, LEVELS = Flask(import_name=__name__), MongoClient()["jwrmods"], {"DEBUG": 0x0000FF,
+                                                                          "INFO": 0x008000,
+                                                                          "WARNING": 0xFFFF00,
+                                                                          "ERROR": 0xFFA500,
+                                                                          "CRITICAL": 0xFF0000}
+APP.secret_key = DB["settings"].find_one(filter={"_id": "Настройки"})["Ключ"]
+APP.wsgi_app = ProxyFix(app=APP.wsgi_app)
 TIME = str(datetime.now(tz=timezone(zone="Europe/Moscow")))[:-13].replace(" ", "_").replace("-", "_").replace(":", "_")
-APP.secret_key = b""
-LOGIN, PASSWORD = "JackieRyan", ""
 
 
 async def logs(level, message, file=None):
     try:
-        if level == LEVELS[1]:
-            from db.settings import settings
-            if not settings["Дебаг"]:
-                return None
-        print(f"{datetime.now(tz=timezone(zone='Europe/Moscow'))} {level['Название']}\n{message}")
+        db = DB["settings"].find_one(filter={"_id": "Логи"})
+        if level == "DEBUG" and not db["Дебаг"]:
+            return None
+        print(f"{datetime.now(tz=timezone(zone='Europe/Moscow'))} {level}:\n{message}\n\n")
         if not exists(path="temp/logs"):
             makedirs(name="temp/logs")
-        with open(file=f"temp/logs/{TIME}.log", mode="a+", encoding="UTF-8") as log_file:
-            log_file.write(f"{datetime.now(tz=timezone(zone='Europe/Moscow'))} {level['Название']}:\n{message}\n\n")
-        webhook = DiscordWebhook(username="JWR Mods",
-                                 avatar_url="https://cdn.discordapp.com/attachments/1021085537802649661/"
-                                            "1021392623044415597/JWR_Mods.png", url="")
-        webhook.add_embed(embed=DiscordEmbed(title=level["Название"], description=str(message), color=level["Цвет"]))
+        with open(file=f"temp/logs/{TIME}.log",
+                  mode="a+",
+                  encoding="UTF-8") as log_file:
+            log_file.write(f"{datetime.now(tz=timezone(zone='Europe/Moscow'))} {level}:\n{message}\n\n")
+        webhook = AsyncDiscordWebhook(username=db["Вебхук"]["Имя"],
+                                      avatar_url=db["Вебхук"]["Аватар"],
+                                      url=db["Вебхук"]["Ссылка"])
+        if len(message) <= 4096:
+            webhook.add_embed(embed=DiscordEmbed(title=level,
+                                                 description=message,
+                                                 color=LEVELS[level]))
+        else:
+            webhook.add_file(file=message.encode(encoding="UTF-8",
+                                                 errors="ignore"),
+                             filename=f"{level}.log")
         if file is not None:
-            with open(file=f"temp/backups/{file}", mode="rb") as backup_file:
-                webhook.add_file(file=backup_file.read(), filename=file)
-        webhook.execute()
+            with open(file=f"temp/db/{file}",
+                      mode="rb") as backup_file:
+                webhook.add_file(file=backup_file.read(),
+                                 filename=file)
+        await webhook.execute()
     except Exception:
-        await logs(level=LEVELS[4], message=format_exc())
-
-
-async def save(file, content):
-    try:
-        while True:
-            if not TRIGGER["Сохранение"]:
-                TRIGGER["Сохранение"] = True
-                if not exists(path="db"):
-                    makedirs(name="db")
-                if file in ["settings"]:
-                    with open(file=f"db/{file}.py", mode="w", encoding="UTF-8") as db_file:
-                        db_file.write(f"import datetime\n\n{file} = {content}\n")
-                else:
-                    with open(file=f"db/{file}.py", mode="w", encoding="UTF-8") as db_file:
-                        db_file.write(f"{file} = {content}\n")
-                TRIGGER["Сохранение"] = False
-                break
-            else:
-                print("Идет сохранение...")
-                await sleep(delay=1)
-    except Exception:
-        TRIGGER["Сохранение"] = False
-        await logs(level=LEVELS[4], message=format_exc())
+        await logs(level="CRITICAL",
+                   message=format_exc())
 
 
 async def backup():
     try:
+        date = str(datetime.now(tz=timezone(zone="Europe/Moscow")))[:-13]
+        time = date.replace(" ", "_").replace("-", "_").replace(":", "_")
+        if not exists(path=f"temp/db/{time}"):
+            makedirs(name=f"temp/db/{time}")
+        for collection in DB.list_collections():
+            file = []
+            for item in DB[collection["name"]].find():
+                file.append(item)
+            with open(file=f"temp/db/{time}/{collection['name']}.py",
+                      mode="w",
+                      encoding="UTF-8") as db_file:
+                db_file.write(f"{collection['name']} = {file}\n")
+        result = s_run(args=f"bin\\zip\\x64\\7za.exe a -mx9 temp\\db\\jwrmods_{time}.zip temp\\db\\{time}",
+                       shell=True,
+                       capture_output=True,
+                       text=True,
+                       encoding="UTF-8",
+                       errors="ignore")
+        try:
+            result.check_returncode()
+        except Exception:
+            raise Exception(result.stderr)
+        await logs(level="INFO",
+                   message="Бэкап БД создан успешно!",
+                   file=f"jwrmods_{time}.zip")
+    except Exception:
+        await logs(level="ERROR",
+                   message=format_exc())
+
+
+async def restart():
+    try:
+        try:
+            execl(executable, executable, "jwrmods.py")
+        except Exception:
+            await logs(level="DEBUG",
+                       message=format_exc())
+            execl("bin/python/python.exe", "bin/python/python.exe", "jwrmods.py")
+    except Exception:
+        await logs(level="ERROR",
+                   message=format_exc())
+
+
+async def autores():
+    try:
         time = int(datetime.now(tz=timezone(zone="Europe/Moscow")).strftime("%H%M%S"))
         print(f"jwrmods: {time}")
-        from db.settings import settings
-        if (datetime.utcnow() - settings["Дата обновления"]).days >= 1:
-            if not TRIGGER["Бэкап"]:
-                TRIGGER["Бэкап"] = True
-                if not exists(path="temp/backups"):
-                    makedirs(name="temp/backups")
-                date = str(datetime.now(tz=timezone(zone="Europe/Moscow")))[:-13]
-                time = date.replace(" ", "_").replace("-", "_").replace(":", "_")
-                system(command=f"bin\\zip\\x64\\7za.exe a -mx9 temp\\backups\\jwrmods_{time}.zip db")
-                settings["Дата обновления"] = datetime.utcnow()
-                await save(file="settings", content=settings)
-                await logs(level=LEVELS[2], message=f"Бэкап БД создан успешно!", file=f"jwrmods_{time}.zip")
-                TRIGGER["Бэкап"] = False
-        Timer(interval=1, function=lambda: run(main=backup())).start()
+        if time == 0 or time == 120000:
+            await backup()
+        Timer(interval=1,
+              function=partial(run, main=autores())).start()
     except Exception:
-        TRIGGER["Бэкап"] = False
-        await logs(level=LEVELS[4], message=format_exc())
+        await logs(level="ERROR",
+                   message=format_exc())
 
 
-async def bat(user, mod):
+async def copy(user, mod):
     try:
-        module = None
-        if mod == [x for x in BAT][0]:
-            module = "money"
-        if mod == [x for x in BAT][1]:
-            module = "maximum"
-        while True:
-            if not BAT[mod]["Триггер"]:
-                BAT[mod]["Триггер"] = True
-                BAT[mod]["Очередь"] += 1
-                with open(file=f"bin/bat/{module}/_INPUT_APK/com/assets/ccwc.txt", mode="w", encoding="UTF-8") as ccwc:
-                    ccwc.write(user)
-                srun(args=f"bin\\bat\\{module}\\bin\\BATCHAPKTOOL.bat launcher 11")
-                with open(file=f"bin/bat/{module}/log_recompile.txt", mode="r", encoding="UTF-8") as log_recompile:
-                    await logs(level=LEVELS[2], message=log_recompile.read())
-                if isfile(path=f"bin/bat/{module}/_OUT_APK/com.apk"):
-                    rename(f"bin/bat/{module}/_OUT_APK/com.apk",
-                           f"bin/bat/{module}/_OUT_APK/com.gameloft.android.ANMP.GloftPOHM_{module}.apk")
-                    move(f"bin/bat/{module}/_OUT_APK/com.gameloft.android.ANMP.GloftPOHM_{module}.apk",
-                         f"temp/files/{user}/com.gameloft.android.ANMP.GloftPOHM_{module}.apk")
-                else:
-                    raise Exception(f"File \"bin/bat/{module}/_OUT_APK/com.apk\" not found.\n"
-                                    f"User: {user}, Time: {datetime.now(tz=timezone(zone='Europe/Moscow'))}")
-                BAT[mod]["Триггер"] = False
-                BAT[mod]["Очередь"] -= 1
-                with open(file=f"temp/files/{user}/index.html", mode="w", encoding="UTF-8") as index_html:
-                    with open(file=f"www/html/files.html", mode="r", encoding="UTF-8") as files_html:
-                        index_html.write(render_template_string(source=files_html.read(), user=user, module=module))
-                break
-            else:
-                await sleep(delay=5)
+        mods = {"3467418": "money",
+                "3468896": "maximum"}
+        file = [x for x in listdir(path=f"temp/files/{mods[mod]}")][0]
+        move(src=f"temp/files/{mods[mod]}/{file}",
+             dst=f"temp/users/{user}/com.gameloft.android.ANMP.GloftPOHM_{mods[mod]}.apk")
+        DB["users"].update_one(filter={"_id": int(user)},
+                               update={"$set": {"Файл": file[:-4]}})
+        with open(file=f"temp/users/{user}/index.html",
+                  mode="w",
+                  encoding="UTF-8") as index_html:
+            with open(file=f"www/html/files.html",
+                      mode="r",
+                      encoding="UTF-8") as files_html:
+                index_html.write(render_template_string(source=files_html.read(),
+                                                        user=user,
+                                                        mod=mods[mod]))
     except Exception:
-        BAT[mod]["Триггер"] = False
-        BAT[mod]["Очередь"] -= 1
-        with open(file=f"temp/files/{user}/index.html", mode="w", encoding="UTF-8") as index_html:
-            with open(file=f"www/html/error.html", mode="r", encoding="UTF-8") as error_html:
-                index_html.write(render_template_string(source=error_html.read(), user=user,
+        with open(file=f"temp/files/{user}/index.html",
+                  mode="w",
+                  encoding="UTF-8") as index_html:
+            with open(file=f"www/html/error.html",
+                      mode="r",
+                      encoding="UTF-8") as error_html:
+                index_html.write(render_template_string(source=error_html.read(),
+                                                        user=user,
                                                         time=datetime.now(tz=timezone(zone="Europe/Moscow"))))
-        await logs(level=LEVELS[4], message=format_exc())
+        await logs(level="ERROR",
+                   message=format_exc())
 
 
-@APP.route(rule="/", methods=["GET", "POST"])
-async def home():
+async def data_admin(error=None):
     try:
-        with open(file=f"www/html/index.html", mode="r", encoding="UTF-8") as index_html:
-            return render_template_string(source=index_html.read(),
-                                          time=str(datetime.now(tz=timezone(zone="Europe/Moscow")))[:-13],
-                                          queue=[BAT[x]["Очередь"] for x in BAT], trigger=TRIGGER)
+        if "user" in session and "token" in session:
+            db = DB["settings"].find_one(filter={"_id": "Администраторы"})
+            if session["user"] in db and session["token"] == db[session["user"]]:
+                users_str, users_rows, users_cols = "", 1, 55
+                settings_str = f"Дебаг: {DB['settings'].find_one(filter={'_id': 'Логи'})['Дебаг']}\n"
+                for user in DB["users"].find(filter={}):
+                    users_str += f"{user['_id']}:\n"
+                    for item in user:
+                        if item == "_id":
+                            continue
+                        users_str += f"    {item}: {user[item]}\n"
+                        if len(f"    {item}: {user[item]}\n") > users_cols:
+                            users_cols = len(f"    {item}: {user[item]}\n") + 5
+                        users_rows += 1
+                    users_rows += 1
+                with open(file=f"www/html/admin.html",
+                          mode="r",
+                          encoding="UTF-8") as admin_html:
+                    return render_template_string(source=admin_html.read(),
+                                                  settings_str=settings_str,
+                                                  settings_cols=55,
+                                                  settings_rows=2,
+                                                  users_str=users_str,
+                                                  users_cols=users_cols,
+                                                  users_rows=users_rows,
+                                                  error=error)
+        with open(file=f"www/html/login.html",
+                  mode="r",
+                  encoding="UTF-8") as login_html:
+            return render_template_string(source=login_html.read(),
+                                          error=error)
     except Exception:
-        await logs(level=LEVELS[4], message=format_exc())
+        await logs(level="ERROR",
+                   message=format_exc())
+        return redirect(location=url_for(endpoint="url_admin"))
 
 
-@APP.route(rule="/css/<file>", methods=["GET", "POST"])
-async def css(file):
+@APP.route(rule="/",
+           methods=["GET", "POST"])
+async def url_home():
+    try:
+        with open(file=f"www/html/index.html",
+                  mode="r",
+                  encoding="UTF-8") as index_html:
+            return render_template_string(source=index_html.read(),
+                                          time=str(datetime.now(tz=timezone(zone="Europe/Moscow")))[:-13])
+    except Exception:
+        await logs(level="ERROR",
+                   message=format_exc())
+
+
+@APP.route(rule="/mods",
+           methods=["GET", "POST"])
+async def url_mods():
+    try:
+        if "friend" in request.args:
+            session["friend"] = request.args["friend"]
+            session.permanent = True
+        if "friend" in request.args:
+            session["friend"] = request.args["friend"]
+            session.permanent = True
+        if "friend" in request.args:
+            session["friend"] = request.args["friend"]
+            session.permanent = True
+        return redirect(location="https://jwr.exaccess.com/articles/125356")
+    except Exception:
+        await logs(level="ERROR",
+                   message=format_exc())
+
+
+@APP.route(rule="/css/<file>",
+           methods=["GET", "POST"])
+async def url_css(file):
     try:
         return send_file(path_or_file=f"www/css/{file}")
     except Exception:
-        await logs(level=LEVELS[4], message=format_exc())
+        await logs(level="ERROR",
+                   message=format_exc())
 
 
-@APP.route(rule="/fonts/<file>", methods=["GET", "POST"])
-async def fonts(file):
+@APP.route(rule="/fonts/<file>",
+           methods=["GET", "POST"])
+async def url_fonts(file):
     try:
         return send_file(path_or_file=f"www/fonts/{file}")
     except Exception:
-        await logs(level=LEVELS[4], message=format_exc())
+        await logs(level="ERROR",
+                   message=format_exc())
 
 
-@APP.route(rule="/images/<file>", methods=["GET", "POST"])
-async def images(file):
+@APP.route(rule="/images/<file>",
+           methods=["GET", "POST"])
+async def url_images(file):
     try:
         return send_file(path_or_file=f"www/images/{file}")
     except Exception:
-        await logs(level=LEVELS[4], message=format_exc())
+        await logs(level="ERROR",
+                   message=format_exc())
 
 
-@APP.route(rule="/confirm", methods=["GET", "POST"])
-async def confirm(user=None, mod=None):
+@APP.route(rule="/confirm",
+           methods=["GET", "POST"])
+async def url_confirm(user=None, mod=None):
     try:
         if user is None:
-            user = request.get_json(force=True, silent=True)["inv"]
+            user = request.get_json(force=True,
+                                    silent=True)["inv"]
         if mod is None:
-            mod = request.get_json(force=True, silent=True)["id"]
-        makedirs(name=f"temp/files/{user}")
-        from db.users import users
-        users.update({user: {"Лимит": 5, "Установок": 0, "Попыток": 0}})
-        await save(file="users", content=users)
-        time = BAT[mod]["Очередь"] * 15
-        if time == 0:
-            time = 15
-        with open(file=f"temp/files/{user}/index.html", mode="w", encoding="UTF-8") as index_html:
-            with open(file=f"www/html/wait.html", mode="r", encoding="UTF-8") as wait_html:
-                index_html.write(render_template_string(source=wait_html.read(), queue=BAT[mod]["Очередь"], time=time))
-        new_loop = new_event_loop()
-        Thread(target=new_loop.run_forever).start()
-        run_coroutine_threadsafe(coro=bat(user=user, mod=mod), loop=new_loop)
-        with open(file=f"www/html/response.html", mode="r", encoding="UTF-8") as response_html:
-            return {"id": mod, "inv": user, "goods": render_template_string(source=response_html.read(), user=user)}
+            mod = request.get_json(force=True,
+                                   silent=True)["id"]
+        makedirs(name=f"temp/users/{user}")
+        DB["users"].insert_one(document={"_id": int(user),
+                                         "Лимит": 5,
+                                         "Установок": 0,
+                                         "Попыток": 0})
+        with open(file=f"temp/users/{user}/index.html",
+                  mode="w",
+                  encoding="UTF-8") as index_html:
+            with open(file=f"www/html/wait.html",
+                      mode="r",
+                      encoding="UTF-8") as wait_html:
+                index_html.write(render_template_string(source=wait_html.read()))
+        loop = new_event_loop()
+        Thread(target=loop.run_forever).start()
+        run_coroutine_threadsafe(coro=copy(user=user, mod=mod),
+                                 loop=loop)
+        with open(file=f"www/html/response.html",
+                  mode="r",
+                  encoding="UTF-8") as response_html:
+            return {"id": mod,
+                    "inv": user,
+                    "goods": render_template_string(source=response_html.read(),
+                                                    user=user)}
     except Exception:
-        await logs(level=LEVELS[4], message=format_exc())
-        with open(file=f"www/html/error.html", mode="r", encoding="UTF-8") as error_html:
-            return {"id": mod, "inv": user, "error": render_template_string(
-                source=error_html.read(), user=user, time=datetime.now(tz=timezone(zone="Europe/Moscow")))}
+        await logs(level="ERROR",
+                   message=format_exc())
+        with open(file=f"www/html/error.html",
+                  mode="r",
+                  encoding="UTF-8") as error_html:
+            return {"id": mod,
+                    "inv": user,
+                    "error": render_template_string(source=error_html.read(),
+                                                    user=user,
+                                                    time=datetime.now(tz=timezone(zone="Europe/Moscow")))}
 
 
-@APP.route(rule="/start/<user>", methods=["GET", "POST"])
-async def start(user):
+@APP.route(rule="/start/<user>",
+           methods=["GET", "POST"])
+async def url_start(user):
     try:
-        print(user)
-        from db.users import users
-        if users[user]["Установок"] < users[user]["Лимит"]:
-            users[user]["Установок"] += 1
-            users[user]["Попыток"] += 1
-            await save(file="users", content=users)
+        db = DB["users"].find_one(filter={"_id": int(user)})
+        if db["Установок"] < db["Лимит"]:
+            DB["users"].update_one(filter={"_id": int(user)},
+                                   update={"$inc": {"Установок": 1,
+                                                    "Попыток": 1}})
             return "1125"
         else:
-            users[user]["Попыток"] += 1
-            await save(file="users", content=users)
-            if users[user]["Попыток"] == 20:
-                await logs(level=LEVELS[3], message=f"Пользователь {user} превысил лимит 20 попыток!")
-            if users[user]["Попыток"] == 100:
-                await logs(level=LEVELS[5], message=f"Пользователь {user} превысил лимит 100 попыток!")
+            DB["users"].update_one(filter={"_id": int(user)},
+                                   update={"$inc": {"Попыток": 1}})
+            if db["Попыток"] == 20:
+                await logs(level="CRITICAL",
+                           message=f"Пользователь {user} превысил лимит 20 попыток!")
+            if db["Попыток"] == 100:
+                await logs(level="CRITICAL",
+                           message=f"Пользователь {user} превысил лимит 100 попыток!")
             return "1126"
     except Exception:
-        await logs(level=LEVELS[4], message=format_exc())
+        await logs(level="ERROR",
+                   message=format_exc())
         return "1127"
 
 
-@APP.route(rule="/files/<user>/<file>", methods=["GET", "POST"])
-async def files(user, file):
+@APP.route(rule="/users/<user>",
+           methods=["GET", "POST"])
+async def url_users(user):
     try:
-        if file == "index.html":
-            with open(file=f"temp/files/{user}/index.html", mode="r", encoding="UTF-8") as index_html:
-                return index_html.read()
-        else:
-            return send_file(path_or_file=f"temp/files/{user}/{file}", as_attachment=True)
+        if "friend" in session:
+            DB["users"].update_one(filter={"_id": int(user)},
+                                   update={"$set": {"Друг": session["friend"]}})
+        with open(file=f"temp/users/{user}/index.html",
+                  mode="r",
+                  encoding="UTF-8") as index_html:
+            return index_html.read()
     except Exception:
-        await logs(level=LEVELS[4], message=format_exc())
-        if exists(path=f"temp/files/{user}/index.html"):
-            return files(user=user, file="index.html")
-        else:
-            with open(file=f"www/html/error.html", mode="r", encoding="UTF-8") as error_html:
-                return render_template_string(source=error_html.read(), user=user,
-                                              time=datetime.now(tz=timezone(zone="Europe/Moscow")))
+        await logs(level="ERROR",
+                   message=format_exc())
+        with open(file=f"www/html/error.html",
+                  mode="r",
+                  encoding="UTF-8") as error_html:
+            return render_template_string(source=error_html.read(),
+                                          user=user,
+                                          time=datetime.now(tz=timezone(zone="Europe/Moscow")))
 
 
-@APP.route(rule="/admin", methods=["GET", "POST"])
-async def admin():
+@APP.route(rule="/files/<user>/<file>",
+           methods=["GET", "POST"])
+async def url_files(user, file):
+    try:
+        if file.startswith("com.gameloft.android.ANMP.GloftPOHM.apk"):
+            return send_file(path_or_file="temp/files/com.gameloft.android.ANMP.GloftPOHM.apk",
+                             as_attachment=True)
+        if file.startswith("com.gameloft.android.ANMP.GloftPOHM_gapps.apk"):
+            return send_file(path_or_file="temp/files/com.gameloft.android.ANMP.GloftPOHM_gapps.apk",
+                             as_attachment=True)
+        if file.startswith("com.gameloft.android.ANMP.GloftPOHM_farm.apk"):
+            return send_file(path_or_file="temp/files/com.gameloft.android.ANMP.GloftPOHM_farm.apk",
+                             as_attachment=True)
+        return send_file(path_or_file=f"temp/users/{user}/{file}",
+                         as_attachment=True)
+    except Exception:
+        await logs(level="ERROR",
+                   message=format_exc())
+        with open(file=f"www/html/error.html",
+                  mode="r",
+                  encoding="UTF-8") as error_html:
+            return render_template_string(source=error_html.read(),
+                                          user=user,
+                                          time=datetime.now(tz=timezone(zone="Europe/Moscow")))
+
+
+@APP.route(rule="/admin",
+           methods=["GET", "POST"])
+async def url_admin():
     try:
         if len(request.form) == 0:
-            if "user" in session and "token" in session:
-                if session["user"] == LOGIN and session["token"] == PASSWORD:
-                    variables_str, triggers_str, settings_str, users_str = "", "", "", ""
-                    variables_rows, triggers_rows, settings_rows, users_rows = 1, 1, 1, 1
-                    variables_cols, triggers_cols, settings_cols, users_cols = 55, 55, 55, 55
-                    for item in BAT:
-                        variables_str += f"{item}: {BAT[item]}\n"
-                        if len(f"{item}: {BAT[item]}\n") > variables_cols:
-                            variables_cols = len(f"{item}: {BAT[item]}\n") + 5
-                        variables_rows += 1
-                    for item in TRIGGER:
-                        triggers_str += f"{item}: {TRIGGER[item]}\n"
-                        if len(f"{item}: {TRIGGER[item]}\n") > triggers_cols:
-                            triggers_cols = len(f"{item}: {TRIGGER[item]}\n") + 5
-                        triggers_rows += 1
-                    from db.settings import settings
-                    for item in settings:
-                        settings_str += f"{item}: {settings[item]}\n"
-                        if len(f"{item}: {settings[item]}\n") > settings_cols:
-                            settings_cols = len(f"{item}: {settings[item]}\n") + 5
-                        settings_rows += 1
-                    from db.users import users
-                    for item in users:
-                        users_str += f"{item}: {users[item]}\n"
-                        if len(f"{item}: {users[item]}\n") > users_cols:
-                            users_cols = len(f"{item}: {users[item]}\n") + 5
-                        users_rows += 1
-                    with open(file=f"www/html/admin.html", mode="r", encoding="UTF-8") as admin_html:
-                        return render_template_string(
-                            source=admin_html.read(), variables_str=variables_str, variables_cols=variables_cols,
-                            variables_rows=variables_rows, triggers_str=triggers_str, triggers_cols=triggers_cols,
-                            triggers_rows=triggers_rows, settings_str=settings_str, settings_cols=settings_cols,
-                            settings_rows=settings_rows, users_str=users_str, users_cols=users_cols,
-                            users_rows=users_rows)
-            with open(file=f"www/html/login.html", mode="r", encoding="UTF-8") as login_html:
-                return render_template_string(source=login_html.read())
+            return await data_admin()
         else:
+            db = DB["settings"].find_one(filter={"_id": "Администраторы"})
             if "login" in request.form and "password" in request.form:
                 pass_hash = sha256(request.form["password"].encode(encoding="UTF-8")).hexdigest()
-                if request.form["login"] == LOGIN and pass_hash == PASSWORD:
-                    session["user"] = LOGIN
-                    session["token"] = PASSWORD
+                if request.form["login"] in db and pass_hash == db[request.form["login"]]:
+                    session["user"] = request.form["login"]
+                    session["token"] = db[request.form["login"]]
                     session.permanent = True
+                else:
+                    return await data_admin(error=True)
             if "debug" in request.form and "token" in session:
-                if session["token"] == PASSWORD:
-                    from db.settings import settings
-                    if settings["Дебаг"]:
-                        settings["Дебаг"] = False
-                    else:
-                        settings["Дебаг"] = True
-                    await save(file="settings", content=settings)
+                if session["token"] == db[session["user"]]:
+                    debug = DB["settings"].find_one(filter={"_id": "Логи"})["Дебаг"]
+                    DB["settings"].update_one(filter={"_id": "Логи"},
+                                              update={"$set": {"Дебаг": not debug}})
+            if "exit" in request.form and "token" in session:
+                if session["token"] == db[session["user"]]:
+                    session.clear()
             if "res" in request.form and "token" in session:
-                if session["token"] == PASSWORD:
-                    try:
-                        execl(executable, executable, "jwrmods.py")
-                    except Exception:
-                        await logs(level=LEVELS[1], message=format_exc())
-                        execl("bin/python/python.exe", "bin/python/python.exe", "jwrmods.py")
-            if "select" in request.form and "value" in request.form and "token" in session:
-                if request.form["select"] == "add" and request.form["value"] != "" and session["token"] == PASSWORD:
-                    res = await confirm(user=request.form["id"], mod=request.form["value"])
-                    return res["goods"] if "goods" in res else res["error"]
-                if request.form["select"] == "change" and request.form["value"] != "" and session["token"] == PASSWORD:
-                    from db.users import users
-                    users[request.form["id"]]["Лимит"] = int(request.form["value"])
-                    await save(file="users", content=users)
-                if request.form["select"] == "del" and request.form["value"] != "" and session["token"] == PASSWORD:
-                    from db.users import users
-                    if request.form["value"] == "All":
-                        users = {}
+                if session["token"] == db[session["user"]]:
+                    await restart()
+            if "select" in request.form and "token" in session:
+                if request.form["select"] == "add" and session["token"] == db[session["user"]]:
+                    if request.form["id"] != "" and request.form["value"] != "":
+                        res = await url_confirm(user=request.form["id"], mod=request.form["value"])
+                        return res["goods"] if "goods" in res else res["error"]
                     else:
-                        users.pop(request.form["id"])
-                    await save(file="users", content=users)
-        return redirect(location=url_for(endpoint="admin"))
+                        return await data_admin(error=1)
+                if request.form["select"] == "change" and session["token"] == db[session["user"]]:
+                    if request.form["id"] != "" and request.form["value"] != "":
+                        DB["users"].update_one(filter={"_id": int(request.form["id"])},
+                                               update={"$set": {"Лимит": int(request.form["value"])}})
+                    else:
+                        return await data_admin(error=2)
+                if request.form["select"] == "del" and session["token"] == db[session["user"]]:
+                    if request.form["id"] != "":
+                        if request.form["id"].lower() == "all":
+                            for user in DB["users"].find(filter={}):
+                                for file in listdir(path=f"temp/users/{user['_id']}"):
+                                    remove(path=f"temp/users/{user['_id']}/{file}")
+                                DB["users"].delete_one(filter={"_id": user["_id"]})
+                        else:
+                            for file in listdir(path=f"temp/users/{request.form['id']}"):
+                                remove(path=f"temp/users/{request.form['id']}/{file}")
+                            DB["users"].delete_one(filter={"_id": int(request.form["id"])})
+                    else:
+                        return await data_admin(error=3)
+        return redirect(location=url_for(endpoint="url_admin"))
     except Exception:
-        await logs(level=LEVELS[4], message=format_exc())
-        return redirect(location=url_for(endpoint="admin"))
+        await logs(level="ERROR",
+                   message=format_exc())
+        return redirect(location=url_for(endpoint="url_admin"))
 
 
-@APP.route(rule="/monitor", methods=["GET", "POST"])
-async def monitor():
+@APP.route(rule="/monitor",
+           methods=["GET", "POST"])
+async def url_monitor():
     try:
         monitor_str, monitor_rows = f"Процессор: {cpu_percent()} %\n\n", 8
         total = str(virtual_memory().total / 1024 / 1024 / 1024).split(".")
@@ -344,17 +455,50 @@ async def monitor():
                                f"{int(disk_usage(disk.mountpoint).free / 1024 / 1024 / 1024)} ГБ\n"
                                f"    Процент: {disk_usage(disk.mountpoint).percent} %\n\n")
             monitor_rows += 6
-        with open(file=f"www/html/monitor.html", mode="r", encoding="UTF-8") as monitor_html:
-            return render_template_string(source=monitor_html.read(), monitor_str=monitor_str,
-                                          monitor_rows=monitor_rows)
+        with open(file=f"www/html/monitor.html",
+                  mode="r",
+                  encoding="UTF-8") as monitor_html:
+            return render_template_string(source=monitor_html.read(),
+                                          monitor_str=monitor_str,
+                                          monitor_rows=monitor_rows,
+                                          clear=True if "clear" in request.args else False)
     except Exception:
-        await logs(level=LEVELS[4], message=format_exc())
-        return redirect(location=url_for(endpoint="monitor"))
+        await logs(level="ERROR",
+                   message=format_exc())
+        return redirect(location=url_for(endpoint="url_monitor"))
+
+
+@APP.errorhandler(code_or_exception=404)
+async def error_404(error):
+    try:
+        print(error)
+        with open(file=f"www/html/notfound.html",
+                  mode="r",
+                  encoding="UTF-8") as notfound_html:
+            return notfound_html.read()
+    except Exception:
+        await logs(level="ERROR",
+                   message=format_exc())
+
+
+@APP.errorhandler(code_or_exception=500)
+async def error_500(error):
+    try:
+        print(error)
+        with open(file=f"www/html/notfound.html",
+                  mode="r",
+                  encoding="UTF-8") as notfound_html:
+            return notfound_html.read()
+    except Exception:
+        await logs(level="ERROR",
+                   message=format_exc())
 
 
 if __name__ == "__main__":
     try:
-        run(main=backup())
-        serve(app=APP, port=80)
+        run(main=autores())
+        serve(app=APP,
+              port=80)
     except Exception:
-        run(main=logs(level=LEVELS[4], message=format_exc()))
+        run(main=logs(level="ERROR",
+                      message=format_exc()))
