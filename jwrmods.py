@@ -157,8 +157,10 @@ async def data_admin(error=None):
         if "user" in session and "token" in session:
             db = DB["settings"].find_one(filter={"_id": "Администраторы"})
             if session["user"] in db and session["token"] == db[session["user"]]:
-                users_str, users_rows, users_cols = "", 1, 55
+                mods_str = str(f"Денежный: {len(listdir(path='temp/files/money'))}\n"
+                               f"Максимальный: {len(listdir(path='temp/files/maximum'))}\n")
                 settings_str = f"Дебаг: {DB['settings'].find_one(filter={'_id': 'Логи'})['Дебаг']}\n"
+                users_str, users_rows, users_cols = "", 1, 55
                 for user in DB["users"].find(filter={}):
                     users_str += f"{user['_id']}:\n"
                     for item in user:
@@ -173,6 +175,9 @@ async def data_admin(error=None):
                           mode="r",
                           encoding="UTF-8") as admin_html:
                     return render_template_string(source=admin_html.read(),
+                                                  mods_str=mods_str,
+                                                  mods_cols=55,
+                                                  mods_rows=3,
                                                   settings_str=settings_str,
                                                   settings_cols=55,
                                                   settings_rows=2,
