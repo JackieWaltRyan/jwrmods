@@ -1,1 +1,1 @@
-bin\python\python.exe jwrmods.py
+python jwrmods.py

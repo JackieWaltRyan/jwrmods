@@ -1,20 +1,20 @@
-from sys import executable
-
 from asyncio import new_event_loop, run, run_coroutine_threadsafe
 from datetime import datetime
-from discord_webhook import AsyncDiscordWebhook, DiscordEmbed
-from flask import Flask, request, send_file, session, redirect, url_for, render_template_string
 from functools import partial
 from hashlib import sha256
 from os import makedirs, execl, listdir, remove
 from os.path import exists
+from shutil import move
+from subprocess import run as s_run
+from sys import executable
+from threading import Thread, Timer
+from traceback import format_exc
+
+from discord_webhook import AsyncDiscordWebhook, DiscordEmbed
+from flask import Flask, request, send_file, session, redirect, url_for, render_template_string
 from psutil import cpu_percent, virtual_memory, disk_partitions, disk_usage
 from pymongo import MongoClient
 from pytz import timezone
-from shutil import move
-from subprocess import run as s_run
-from threading import Thread, Timer
-from traceback import format_exc
 from waitress import serve
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -24,7 +24,7 @@ APP, DB, LEVELS = Flask(import_name=__name__), MongoClient()["jwrmods"], {"DEBUG
                                                                           "ERROR": 0xFFA500,
                                                                           "CRITICAL": 0xFF0000}
 APP.secret_key = DB["settings"].find_one(filter={"_id": "Настройки"})["Ключ"]
-APP.wsgi_app = ProxyFix(app=APP.wsgi_app)
+APP.wsgi_app = ProxyFix(app=APP.wsgi_app)  # type: ignore
 TIME = str(datetime.now(tz=timezone(zone="Europe/Moscow")))[:-13].replace(" ", "_").replace("-", "_").replace(":", "_")
 
 
@@ -101,7 +101,7 @@ async def restart():
         except Exception:
             await logs(level="DEBUG",
                        message=format_exc())
-            execl("bin/python/python.exe", "bin/python/python.exe", "jwrmods.py")
+            execl("python", "python", "jwrmods.py")
     except Exception:
         await logs(level="ERROR",
                    message=format_exc())
@@ -128,26 +128,8 @@ async def copy(user, mod):
         move(src=f"temp/files/{mods[mod]}/{file}",
              dst=f"temp/users/{user}/com.gameloft.android.ANMP.GloftPOHM_{mods[mod]}.apk")
         DB["users"].update_one(filter={"_id": int(user)},
-                               update={"$set": {"Файл": file[:-4]}})
-        with open(file=f"temp/users/{user}/index.html",
-                  mode="w",
-                  encoding="UTF-8") as index_html:
-            with open(file=f"www/html/files.html",
-                      mode="r",
-                      encoding="UTF-8") as files_html:
-                index_html.write(render_template_string(source=files_html.read(),
-                                                        user=user,
-                                                        mod=mods[mod]))
+                               update={"$set": {"Файл": int(file[:-4])}})
     except Exception:
-        with open(file=f"temp/files/{user}/index.html",
-                  mode="w",
-                  encoding="UTF-8") as index_html:
-            with open(file=f"www/html/error.html",
-                      mode="r",
-                      encoding="UTF-8") as error_html:
-                index_html.write(render_template_string(source=error_html.read(),
-                                                        user=user,
-                                                        time=datetime.now(tz=timezone(zone="Europe/Moscow"))))
         await logs(level="ERROR",
                    message=format_exc())
 
@@ -171,7 +153,7 @@ async def data_admin(error=None):
                             users_cols = len(f"    {item}: {user[item]}\n") + 5
                         users_rows += 1
                     users_rows += 1
-                with open(file=f"www/html/admin.html",
+                with open(file=f"www/html/admins/admin.html",
                           mode="r",
                           encoding="UTF-8") as admin_html:
                     return render_template_string(source=admin_html.read(),
@@ -185,7 +167,7 @@ async def data_admin(error=None):
                                                   users_cols=users_cols,
                                                   users_rows=users_rows,
                                                   error=error)
-        with open(file=f"www/html/login.html",
+        with open(file=f"www/html/admins/login.html",
                   mode="r",
                   encoding="UTF-8") as login_html:
             return render_template_string(source=login_html.read(),
@@ -200,7 +182,7 @@ async def data_admin(error=None):
            methods=["GET", "POST"])
 async def url_home():
     try:
-        with open(file=f"www/html/index.html",
+        with open(file=f"www/html/services/index.html",
                   mode="r",
                   encoding="UTF-8") as index_html:
             return render_template_string(source=index_html.read(),
@@ -223,7 +205,10 @@ async def url_mods():
         if "friend" in request.args:
             session["friend"] = request.args["friend"]
             session.permanent = True
-        return redirect(location="https://jwr.exaccess.com/articles/125356")
+        with open(file=f"www/html/services/mods.html",
+                  mode="r",
+                  encoding="UTF-8") as mods_html:
+            return render_template_string(source=mods_html.read())
     except Exception:
         await logs(level="ERROR",
                    message=format_exc())
@@ -249,7 +234,7 @@ async def url_fonts(file):
                    message=format_exc())
 
 
-@APP.route(rule="/images/<file>",
+@APP.route(rule="/images/<path:file>",
            methods=["GET", "POST"])
 async def url_images(file):
     try:
@@ -259,9 +244,19 @@ async def url_images(file):
                    message=format_exc())
 
 
+@APP.route(rule="/js/<file>",
+           methods=["GET", "POST"])
+async def url_js(file):
+    try:
+        return send_file(path_or_file=f"www/js/{file}")
+    except Exception:
+        await logs(level="ERROR",
+                   message=format_exc())
+
+
 @APP.route(rule="/confirm",
            methods=["GET", "POST"])
-async def url_confirm(user=None, mod=None):
+async def url_confirm(user=None, mod=None, friend=None):
     try:
         if user is None:
             user = request.get_json(force=True,
@@ -269,33 +264,33 @@ async def url_confirm(user=None, mod=None):
         if mod is None:
             mod = request.get_json(force=True,
                                    silent=True)["id"]
+        if friend is None:
+            friend = request.get_json(force=True,
+                                      silent=True)["friend"] if "friend" in request.get_json(force=True,
+                                                                                             silent=True) else None
         makedirs(name=f"temp/users/{user}")
-        DB["users"].insert_one(document={"_id": int(user),
-                                         "Лимит": 5,
-                                         "Установок": 0,
-                                         "Попыток": 0})
-        with open(file=f"temp/users/{user}/index.html",
-                  mode="w",
-                  encoding="UTF-8") as index_html:
-            with open(file=f"www/html/wait.html",
-                      mode="r",
-                      encoding="UTF-8") as wait_html:
-                index_html.write(render_template_string(source=wait_html.read()))
+        document = {"_id": int(user),
+                    "Лимит": 5,
+                    "Установок": 0,
+                    "Попыток": 0}
+        document.update({"Друг": friend} if friend is not None else {})
+        DB["users"].insert_one(document=document)
         loop = new_event_loop()
         Thread(target=loop.run_forever).start()
-        run_coroutine_threadsafe(coro=copy(user=user, mod=mod),
+        run_coroutine_threadsafe(coro=copy(user=user,
+                                           mod=mod),
                                  loop=loop)
-        with open(file=f"www/html/response.html",
+        with open(file=f"www/html/responses/goods.html",
                   mode="r",
-                  encoding="UTF-8") as response_html:
+                  encoding="UTF-8") as goods_html:
             return {"id": mod,
                     "inv": user,
-                    "goods": render_template_string(source=response_html.read(),
+                    "goods": render_template_string(source=goods_html.read(),
                                                     user=user)}
     except Exception:
         await logs(level="ERROR",
                    message=format_exc())
-        with open(file=f"www/html/error.html",
+        with open(file=f"www/html/responses/error.html",
                   mode="r",
                   encoding="UTF-8") as error_html:
             return {"id": mod,
@@ -305,25 +300,25 @@ async def url_confirm(user=None, mod=None):
                                                     time=datetime.now(tz=timezone(zone="Europe/Moscow")))}
 
 
-@APP.route(rule="/start/<user>",
+@APP.route(rule="/start/<file>",
            methods=["GET", "POST"])
-async def url_start(user):
+async def url_start(file):
     try:
-        db = DB["users"].find_one(filter={"_id": int(user)})
+        db = DB["users"].find_one(filter={"Файл": int(file)})
         if db["Установок"] < db["Лимит"]:
-            DB["users"].update_one(filter={"_id": int(user)},
+            DB["users"].update_one(filter={"_id": db["_id"]},
                                    update={"$inc": {"Установок": 1,
                                                     "Попыток": 1}})
             return "1125"
         else:
-            DB["users"].update_one(filter={"_id": int(user)},
+            DB["users"].update_one(filter={"_id": db["_id"]},
                                    update={"$inc": {"Попыток": 1}})
             if db["Попыток"] == 20:
                 await logs(level="CRITICAL",
-                           message=f"Пользователь {user} превысил лимит 20 попыток!")
+                           message=f"Пользователь {db['_id']} превысил лимит 20 попыток!")
             if db["Попыток"] == 100:
                 await logs(level="CRITICAL",
-                           message=f"Пользователь {user} превысил лимит 100 попыток!")
+                           message=f"Пользователь {db['_id']} превысил лимит 100 попыток!")
             return "1126"
     except Exception:
         await logs(level="ERROR",
@@ -338,19 +333,22 @@ async def url_users(user):
         if "friend" in session:
             DB["users"].update_one(filter={"_id": int(user)},
                                    update={"$set": {"Друг": session["friend"]}})
-        with open(file=f"temp/users/{user}/index.html",
-                  mode="r",
-                  encoding="UTF-8") as index_html:
-            return index_html.read()
+        files = [x for x in listdir(path=f"temp/users/{user}") if x.endswith(".apk")]
+        if len(files) > 0:
+            with open(file=f"www/html/users/files.html",
+                      mode="r",
+                      encoding="UTF-8") as files_html:
+                return render_template_string(source=files_html.read(),
+                                              user=user,
+                                              file=files[0])
+        else:
+            with open(file=f"www/html/users/wait.html",
+                      mode="r",
+                      encoding="UTF-8") as wait_html:
+                return wait_html.read()
     except Exception:
         await logs(level="ERROR",
                    message=format_exc())
-        with open(file=f"www/html/error.html",
-                  mode="r",
-                  encoding="UTF-8") as error_html:
-            return render_template_string(source=error_html.read(),
-                                          user=user,
-                                          time=datetime.now(tz=timezone(zone="Europe/Moscow")))
 
 
 @APP.route(rule="/files/<user>/<file>",
@@ -371,12 +369,6 @@ async def url_files(user, file):
     except Exception:
         await logs(level="ERROR",
                    message=format_exc())
-        with open(file=f"www/html/error.html",
-                  mode="r",
-                  encoding="UTF-8") as error_html:
-            return render_template_string(source=error_html.read(),
-                                          user=user,
-                                          time=datetime.now(tz=timezone(zone="Europe/Moscow")))
 
 
 @APP.route(rule="/admin",
@@ -388,7 +380,8 @@ async def url_admin():
         else:
             db = DB["settings"].find_one(filter={"_id": "Администраторы"})
             if "login" in request.form and "password" in request.form:
-                pass_hash = sha256(request.form["password"].encode(encoding="UTF-8")).hexdigest()
+                pass_hash = sha256(request.form["password"].encode(encoding="UTF-8",
+                                                                   errors="ignore")).hexdigest()
                 if request.form["login"] in db and pass_hash == db[request.form["login"]]:
                     session["user"] = request.form["login"]
                     session["token"] = db[request.form["login"]]
@@ -409,7 +402,9 @@ async def url_admin():
             if "select" in request.form and "token" in session:
                 if request.form["select"] == "add" and session["token"] == db[session["user"]]:
                     if request.form["id"] != "" and request.form["value"] != "":
-                        res = await url_confirm(user=request.form["id"], mod=request.form["value"])
+                        res = await url_confirm(user=request.form["id"],
+                                                mod=request.form["value"],
+                                                friend="jwr")
                         return res["goods"] if "goods" in res else res["error"]
                     else:
                         return await data_admin(error=1)
@@ -439,7 +434,7 @@ async def url_admin():
         return redirect(location=url_for(endpoint="url_admin"))
 
 
-@APP.route(rule="/monitor",
+@APP.route(rule="/admin/monitor",
            methods=["GET", "POST"])
 async def url_monitor():
     try:
@@ -460,7 +455,7 @@ async def url_monitor():
                                f"{int(disk_usage(disk.mountpoint).free / 1024 / 1024 / 1024)} ГБ\n"
                                f"    Процент: {disk_usage(disk.mountpoint).percent} %\n\n")
             monitor_rows += 6
-        with open(file=f"www/html/monitor.html",
+        with open(file=f"www/html/admins/monitor.html",
                   mode="r",
                   encoding="UTF-8") as monitor_html:
             return render_template_string(source=monitor_html.read(),
@@ -477,10 +472,10 @@ async def url_monitor():
 async def error_404(error):
     try:
         print(error)
-        with open(file=f"www/html/notfound.html",
+        with open(file=f"www/html/services/error.html",
                   mode="r",
-                  encoding="UTF-8") as notfound_html:
-            return notfound_html.read()
+                  encoding="UTF-8") as error_html:
+            return error_html.read()
     except Exception:
         await logs(level="ERROR",
                    message=format_exc())
@@ -490,10 +485,10 @@ async def error_404(error):
 async def error_500(error):
     try:
         print(error)
-        with open(file=f"www/html/notfound.html",
+        with open(file=f"www/html/services/error.html",
                   mode="r",
-                  encoding="UTF-8") as notfound_html:
-            return notfound_html.read()
+                  encoding="UTF-8") as error_html:
+            return error_html.read()
     except Exception:
         await logs(level="ERROR",
                    message=format_exc())
@@ -503,7 +498,8 @@ if __name__ == "__main__":
     try:
         run(main=autores())
         serve(app=APP,
-              port=80)
+              port=80,
+              threads=16)
     except Exception:
         run(main=logs(level="ERROR",
                       message=format_exc()))
