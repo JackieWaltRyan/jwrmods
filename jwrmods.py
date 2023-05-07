@@ -96,12 +96,7 @@ async def backup():
 
 async def restart():
     try:
-        try:
-            execl(executable, executable, "jwrmods.py")
-        except Exception:
-            await logs(level="DEBUG",
-                       message=format_exc())
-            execl("python", "python", "jwrmods.py")
+        execl(executable, "python", "jwrmods.py")
     except Exception:
         await logs(level="ERROR",
                    message=format_exc())
