@@ -2,23 +2,18 @@
 <html lang="ru">
     <head>
         <meta charset="UTF-8"/>
-        <meta http-equiv="refresh" content="5"/>
-		<title>Сервер JWR Mods запущен...</title>
-        <script type="text/javascript" src="/js/ponycfg.js"></script>
-		<link rel="icon" href="/images/favicon.png" type="image/png"/>
+        <title>Сервер JWR Mods запущен...</title>
+        <script type="text/javascript" src="/js/jwrmods.js"></script>
+        <link rel="icon" href="/images/favicon.png" type="image/png"/>
         <link rel="stylesheet" type="text/css" href="/css/style.css"/>
-		<meta name="description" content="Сервер JWR Mods запущен..."/>
-        <script type="text/javascript" src="/js/browserponies.js"></script>
-		<meta name="viewport" content="width=device-width, initial-scale=1"/>
+        <meta name="description" content="Сервер JWR Mods запущен..."/>
+        <meta name="viewport" content="width=device-width, initial-scale=1"/>
     </head>
     <body>
-        <div id="index">
-            Сервер JWR Mods запущен...
-            <br><br>{{ time }}
-        </div>
-        <br><br><br>Все службы функционируют в обычном режиме.
+        <h1>Сервер JWR Mods запущен...</h1>
+        <h3 id="time"></h3>
         <script>
-            BrowserPonies.start();
+            update_time();
         </script>
     </body>
 </html>
