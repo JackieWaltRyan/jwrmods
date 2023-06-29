@@ -205,10 +205,12 @@ function admin_generate(value, trigger = true) {
                 for (let user in data) {
                     block.appendChild(document.createElement("hr"));
 
-                    let p = document.createElement("p");
-                    p.classList.add("users_names");
-                    p.innerText = user;
-                    block.appendChild(p);
+                    let a = document.createElement("a");
+                    a.classList.add("users_names");
+                    a.href = ("/users/" + user);
+                    a.target = "_blank";
+                    a.innerText = user;
+                    block.appendChild(a);
 
                     let root = document.createElement("div");
                     root.classList.add("users_data");

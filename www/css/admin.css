@@ -96,6 +96,8 @@ h3 {
 
 .users_names {
     overflow-wrap: anywhere;
+    text-decoration-line: none;
+    color: #ffccff;
 }
 
 .users_data {
