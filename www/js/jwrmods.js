@@ -101,29 +101,29 @@ function admin_load() {
 
     document.getElementById("select").addEventListener("change", (event) => {
         if (temp !== null) {
-            document.getElementById("manage").innerHTML = temp;
+            document.getElementById("form").innerHTML = temp;
         }
 
         document.getElementById("form_value_1").style.display = "block";
-        document.getElementById("value_1_name").innerText = "Пользователь:";
+        document.getElementById("form_value_1_name").innerText = "Пользователь:";
 
         document.getElementById("form_submit_input").style.display = "block";
 
-        document.getElementById("value_1_input").value = "";
-        document.getElementById("value_2_input").value = "";
+        document.getElementById("form_value_1_input").value = "";
+        document.getElementById("form_value_2_input").value = "";
 
         if (event.target.value === "add") {
             document.getElementById("form_value_2").style.display = "block";
-            document.getElementById("value_2_name").innerText = "Мод:";
+            document.getElementById("form_value_2_name").innerText = "Мод:";
         }
 
         if (event.target.value === "change") {
             document.getElementById("form_value_2").style.display = "block";
-            document.getElementById("value_2_name").innerText = "Лимит:";
+            document.getElementById("form_value_2_name").innerText = "Лимит:";
         }
 
         if (event.target.value === "del") {
-            temp = document.getElementById("manage").innerHTML;
+            temp = document.getElementById("form").innerHTML;
 
             document.getElementById("form_value_2").remove();
         }
@@ -131,10 +131,10 @@ function admin_load() {
 }
 
 function admin_manage() {
-    let value = document.getElementById("value_2_input") ? document.getElementById("value_2_input").value : "";
+    let value = document.getElementById("form_value_2_input") ? document.getElementById("form_value_2_input").value : "";
     let xhr = new XMLHttpRequest();
 
-    xhr.open("GET", ("/api/admin/" + document.getElementById("select").value + "?user=" + encodeURIComponent(document.getElementById("value_1_input").value) + "&mod=" + encodeURIComponent(value) + "&value=" + encodeURIComponent(value)), true);
+    xhr.open("GET", ("/api/admin/" + document.getElementById("select").value + "?user=" + encodeURIComponent(document.getElementById("form_value_1_input").value) + "&mod=" + encodeURIComponent(value) + "&value=" + encodeURIComponent(value)), true);
 
     xhr.addEventListener("load", () => {
         if (xhr.status === 200) {
@@ -148,7 +148,7 @@ function admin_manage() {
             document.getElementById("select_none").selected = true;
 
             if (document.getElementById("select").value === "add") {
-                window.open("/users/" + document.getElementById("value_1_input").value, "_blank");
+                window.open("/users/" + document.getElementById("form_value_1_input").value, "_blank");
             }
         } else {
             alert("Во время обработки запроса возникла ошибка!");
@@ -206,17 +206,17 @@ function admin_generate(value, trigger = true) {
                     block.appendChild(document.createElement("hr"));
 
                     let p = document.createElement("p");
-                    p.classList.add("names");
+                    p.classList.add("users_names");
                     p.innerText = user;
                     block.appendChild(p);
 
                     let root = document.createElement("div");
-                    root.classList.add("times");
+                    root.classList.add("users_data");
                     block.appendChild(root);
 
                     for (let time in data[user]) {
                         let div = document.createElement("div");
-                        div.classList.add("times_item");
+                        div.classList.add("users_data_item");
                         root.appendChild(div);
 
                         let start = document.createElement("div");

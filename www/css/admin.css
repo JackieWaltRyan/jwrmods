@@ -31,10 +31,6 @@ h3 {
 .background {
     background-color: #00000050;
     padding: 5px;
-    position: fixed;
-    width: calc(100vw - 25px);
-    height: calc(100vh - 25px);
-    z-index: -1;
 }
 
 .login {
@@ -44,7 +40,6 @@ h3 {
     justify-content: center;
     align-items: center;
     flex-wrap: wrap;
-    padding-top: 10vh;
 }
 
 #login, #password, .submit {
@@ -86,6 +81,7 @@ h3 {
     align-items: center;
     padding: 5px 10px 0;
     flex-wrap: wrap;
+    text-align: left;
 }
 
 #token, #restart, #logout {
@@ -96,6 +92,27 @@ h3 {
     display: flex;
     flex-wrap: wrap;
     justify-content: space-around;
+}
+
+.users_names {
+    overflow-wrap: anywhere;
+}
+
+.users_data {
+    display: flex;
+    flex-wrap: wrap;
+    max-width: fit-content;
+    flex-direction: column;
+    align-items: flex-start;
+    white-space: nowrap;
+}
+
+.users_data_item {
+    display: flex;
+    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: center;
+    padding: 5px;
 }
 
 #select {
@@ -109,11 +126,21 @@ h3 {
     text-align: center;
 }
 
+#form {
+    display: flex;
+    flex-direction: column;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    align-content: center;
+    padding-top: 15px;
+}
+
 #form_value_1, #form_value_2, #form_submit_input {
     display: none;
 }
 
-#value_1_input, #value_2_input, #form_submit_input {
+#form_value_1_input, #form_value_2_input, #form_submit_input {
     padding: 5px 0;
     font-family: celestia, serif;
     font-size: 20px;
@@ -129,36 +156,4 @@ h3 {
 #form_submit_input {
     color: #67c1f5;
 	line-height: 30px;
-}
-
-.names {
-    overflow-wrap: anywhere;
-}
-
-.times {
-    display: flex;
-    flex-wrap: wrap;
-    max-width: fit-content;
-    margin: auto;
-    flex-direction: column;
-    align-items: flex-start;
-    white-space: nowrap;
-}
-
-.times_item {
-    display: flex;
-    flex-wrap: wrap;
-    flex-direction: column;
-    align-items: center;
-    padding: 10px;
-}
-
-#manage {
-    display: flex;
-    flex-direction: column;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    align-content: center;
-    padding-top: 15px;
 }
